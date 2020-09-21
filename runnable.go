@@ -21,5 +21,9 @@ type wrapper struct {
 
 // 실제 func() 을 실행합니다.
 func (w *wrapper) Run() {
+	if w.runnable == nil {
+		return
+	}
+
 	w.runnable()
 }
