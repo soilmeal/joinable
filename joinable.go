@@ -65,6 +65,11 @@ func NewJoinableWithOption(opt *Option) *Joinable {
 	}
 }
 
+// ID 는 joinable 의 id 를 반환합니다.
+func (joinable *Joinable) ID() uint64 {
+	return joinable.id
+}
+
 // Start 메소드는 실제 goroutine 을 실행시킵니다.
 func (joinable *Joinable) Start() {
 	joinable.runGoroutine()
@@ -93,6 +98,11 @@ func (joinable *Joinable) Join() {
 	joinable.mutex.Lock()
 	joinable.cond.Wait()
 	joinable.mutex.Unlock()
+}
+
+// String 은 Joinable 을 string 으로 표현한 정보를 반환합니다.
+func (joinable *Joinable) String() string {
+	return fmt.Sprintf("Joinable{ id=%d }", joinable.id)
 }
 
 // runGoroutine 메소드는 실제로 goroutine 을 실행합니다.
