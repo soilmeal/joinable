@@ -10,10 +10,19 @@ import (
 
 var idGeneratorForJoinable atomic.Uint64
 
+const (
+	StateNone              int32 = 0
+	StateRunning           int32 = 1
+	StateEnded             int32 = 2
+	StateRunningAndWaiting int32 = 3
+)
+
 // Joinable 은 goroutine wrapping 클래스입니다.
 // 다른 언어에서 쓰이던 join 개념이 없는 것이 개인적으로 불편해서 만들었습니다.
 type Joinable struct {
 	id uint64
+
+	state atomic.Int32
 
 	err      error
 	errMutex sync.Mutex
@@ -27,7 +36,7 @@ type Joinable struct {
 // NewJoinable 메소드는 새로운 Joinable 인스턴스를 생성합니다.
 func NewJoinable(runnable Runnable) *Joinable {
 	mutex := new(sync.Mutex)
-	return &Joinable{
+	joinable := &Joinable{
 		id: idGeneratorForJoinable.Inc(),
 
 		opt: NewOption(runnable, false),
@@ -35,13 +44,17 @@ func NewJoinable(runnable Runnable) *Joinable {
 		mutex: mutex,
 		cond:  sync.NewCond(mutex),
 	}
+
+	joinable.state.Store(StateNone)
+
+	return joinable
 }
 
 // NewJoinableWithFunc 메소드는 새로운 Joinable 인스턴스를 생성합니다.
 // Runnable interface 를 구현하기 귀찮으신 분들을 위해서 준비했습니다.
 func NewJoinableWithFunc(runnable func()) *Joinable {
 	mutex := new(sync.Mutex)
-	return &Joinable{
+	joinable := &Joinable{
 		id: idGeneratorForJoinable.Inc(),
 
 		opt: NewOptionWithFunc(runnable, false),
@@ -49,13 +62,17 @@ func NewJoinableWithFunc(runnable func()) *Joinable {
 		mutex: mutex,
 		cond:  sync.NewCond(mutex),
 	}
+
+	joinable.state.Store(StateNone)
+
+	return joinable
 }
 
 // NewJoinableWithOption 메소드는 새로운 Joinable 인스턴스를 생성합니다.
 // Option 클래스에서 자세한 값을 확인해주세요.
 func NewJoinableWithOption(opt *Option) *Joinable {
 	mutex := new(sync.Mutex)
-	return &Joinable{
+	joinable := &Joinable{
 		id: idGeneratorForJoinable.Inc(),
 
 		opt: opt,
@@ -63,6 +80,10 @@ func NewJoinableWithOption(opt *Option) *Joinable {
 		mutex: mutex,
 		cond:  sync.NewCond(mutex),
 	}
+
+	joinable.state.Store(StateNone)
+
+	return joinable
 }
 
 // ID 는 joinable 의 id 를 반환합니다.
@@ -95,9 +116,12 @@ func (joinable *Joinable) Error() error {
 // 생성시 인자 혹은 Option 객체에 설정한 실제 Runnable 구현이 정상적으로 끝나지 않는다면
 // 무한 대기하게 되므로, 꼭 Runnable 구현을 확인해주시기 바랍니다.
 func (joinable *Joinable) Join() {
-	joinable.mutex.Lock()
-	joinable.cond.Wait()
-	joinable.mutex.Unlock()
+	// 만약 실행 중이 아니라면, 대기할 이유도 없음.
+	if joinable.state.CAS(StateRunning, StateRunningAndWaiting) {
+		joinable.mutex.Lock()
+		joinable.cond.Wait()
+		joinable.mutex.Unlock()
+	}
 }
 
 // String 은 Joinable 을 string 으로 표현한 정보를 반환합니다.
@@ -117,7 +141,13 @@ func (joinable *Joinable) runGoroutine() {
 			}()
 		}
 
-		joinable.opt.Runnable.Run()
+		if joinable.opt.Runnable != nil {
+			joinable.state.Store(StateRunning)
+
+			joinable.opt.Runnable.Run()
+		}
+
+		joinable.state.Store(StateEnded)
 
 		joinable.mutex.Lock()
 		joinable.cond.Signal()
