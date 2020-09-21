@@ -100,7 +100,7 @@ func (joinable *Joinable) runGoroutine() {
 	go func() {
 		joinable.clearError()
 
-		if joinable.opt.ShouldCatchPanic {
+		if joinable.opt.ShouldRecoverPanic {
 			defer func() {
 				err := recover()
 				joinable.setError(err)
